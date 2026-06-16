@@ -10,106 +10,116 @@ def converter_cor_gimp_para_rgb(gimp_r, gimp_g, gimp_b):
     b = int((gimp_b / 100) * 255)
     return (r, g, b)
 
-def encontrar_faixa_divisoria(imagem, cor_alvo, tolerancia=15, altura_faixa=10):
+def encontrar_faixa_divisoria(imagem, cor_alvo, tolerancia=25):
     """
-    Encontra posições onde há uma faixa horizontal da cor especificada
+    Identifica as linhas divisórias por densidade horizontal de cor,
+    garantindo detecção mesmo com pequenas distorções ou rotações na página.
     """
     largura, altura = imagem.size
     pixels = imagem.load()
     
+    linhas_detectadas = []
+    
+    # Amostragem horizontal (ignora margens extremas para evitar ruídos de borda)
+    x_inicio = int(largura * 0.15)
+    x_fim = int(largura * 0.85)
+    passo_x = 4  # Otimiza a velocidade saltando de 4 em 4 pixels horizontais
+    pontos_totais = len(range(x_inicio, x_fim, passo_x))
+    
+    for y in range(altura):
+        pixels_validos = 0
+        for x in range(x_inicio, x_fim, passo_x):
+            pixel = pixels[x, y]
+            r, g, b = pixel[:3]
+            
+            if (abs(r - cor_alvo[0]) <= tolerancia and 
+                abs(g - cor_alvo[1]) <= tolerancia and 
+                abs(b - cor_alvo[2]) <= tolerancia):
+                pixels_validos += 1
+        
+        # Se mais de 75% da linha horizontal contiver a cor alvo, é uma divisória
+        if (pixels_validos / pontos_totais) > 0.75:
+            linhas_detectadas.append(y)
+            
     posicoes_corte = []
-    
-    # Percorre a imagem de cima para baixo
-    y = 0
-    while y < altura - altura_faixa:
-        # Verifica se há uma faixa de 'altura_faixa' pixels da cor alvo
-        faixa_encontrada = True
+    if not linhas_detectadas:
+        return posicoes_corte
         
-        for dy in range(altura_faixa):
-            # Pega a cor do pixel atual (no canto da imagem para evitar o conteúdo)
-            pixel = pixels[largura-2, y + dy]
-            
-            if len(pixel) == 4:  # RGBA
-                r, g, b, a = pixel
-            else:  # RGB
-                r, g, b = pixel[:3]
-            
-            # Verifica se a cor está dentro da tolerância
-            if (abs(r - cor_alvo[0]) > tolerancia or 
-                abs(g - cor_alvo[1]) > tolerancia or 
-                abs(b - cor_alvo[2]) > tolerancia):
-                faixa_encontrada = False
-                break
-        
-        if faixa_encontrada:
-            # Corta ANTES da faixa (no pixel anterior)
-            posicao_corte = y - 13
-            if posicao_corte < 0:
-                posicao_corte = 0
-                
-            posicoes_corte.append(posicao_corte)
-            print(f"Faixa divisória encontrada em y={y}, cortando em y={posicao_corte}")
-            # Pula a faixa inteira para evitar detecções múltiplas
-            y += altura_faixa
+    # Agrupa linhas consecutivas (faixas pretas grossas) e captura o pixel inicial de cada uma
+    grupo_atual = [linhas_detectadas[0]]
+    for y in linhas_detectadas[1:]:
+        if y - grupo_atual[-1] <= 15:
+            grupo_atual.append(y)
         else:
-            y += 1
-    
-    return posicoes_corte
+            posicoes_corte.append(grupo_atual[0])
+            grupo_atual = [y]
+    if grupo_atual:
+        posicoes_corte.append(grupo_atual[0])
+        
+    # Filtro de proximidade: Impede que ruídos internos criem mini-cortes colados
+    posicoes_finais = []
+    for p in posicoes_corte:
+        if not posicoes_finais or (p - posicoes_finais[-1] >= 150):
+            posicoes_finais.append(p)
+            
+    return posicoes_finais
 
 def dividir_imagem_por_faixas(caminho_imagem, pasta_saida, cor_alvo):
     """
-    Divide a imagem verticalmente cortando ANTES das faixas divisorias
+    Divide a imagem mantendo o fluxo contínuo de pixels sem deixar nenhum 'limbo' invisível
     """
     imagem = Image.open(caminho_imagem)
     largura, altura = imagem.size
     
     print(f"Imagem carregada: {largura}x{altura} pixels")
     
-    # Encontra as posições das faixas baseadas na cor alvo
+    # Busca os topos exatos das faixas pretas horizontais
     posicoes_corte = encontrar_faixa_divisoria(imagem, cor_alvo)
     
     if not posicoes_corte:
-        print("Nenhuma faixa divisória encontrada na imagem!")
+        print("Nenhuma linha divisória válida foi encontrada!")
         return
     
-    print(f"Encontradas {len(posicoes_corte)} faixas para corte")
+    print(f"Total de questões detectadas: {len(posicoes_corte)}")
     
     os.makedirs(pasta_saida, exist_ok=True)
     posicao_anterior = 0
     
-    for i, posicao_corte in enumerate(posicoes_corte):
-        if posicao_corte <= posicao_anterior:
+    for i, topo_linha in enumerate(posicoes_corte):
+        # Define o ponto de corte 8 pixels antes da linha começar para dar respiro visual
+        posicao_corte = max(0, topo_linha - 15)
+        
+        if list(posicoes_corte).count(posicao_corte) > 1 or posicao_corte <= posicao_anterior:
             continue
             
         area_corte = (0, posicao_anterior, largura, posicao_corte)
         secao = imagem.crop(area_corte)
         
-        nome_arquivo = f"parte_{i+1:03d}.png"
+        nome_arquivo = f"questao_{i+1:03d}.png"
         caminho_completo = os.path.join(pasta_saida, nome_arquivo)
         secao.save(caminho_completo)
         print(f"Salvo: {caminho_completo} ({secao.width}x{secao.height}px)")
         
-        posicao_anterior = posicao_corte + 10  # Pula a faixa de 10 pixels
+        # ESTRATÉGIA CRUCIAL: A próxima questão inicia exatamente onde esta terminou.
+        # Zero descarte de dados. A linha preta e o título descem íntegros para o próximo bloco.
+        posicao_anterior = posicao_corte
     
-    # Corta a seção final
+    # Salva a última seção restante até o final do documento
     if posicao_anterior < altura:
         area_corte = (0, posicao_anterior, largura, altura)
         secao = imagem.crop(area_corte)
         
-        nome_arquivo = f"parte_{len(posicoes_corte)+1:03d}.png"
+        nome_arquivo = f"questao_{len(posicoes_corte)+1:03d}.png"
         caminho_completo = os.path.join(pasta_saida, nome_arquivo)
         secao.save(caminho_completo)
         print(f"Salvo: {caminho_completo} ({secao.width}x{secao.height}px)")
 
 if __name__ == "__main__":
-    caminho_imagem = "colunas_concatenadas_verticalmente.png"  # Substitua pelo seu caminho
-    pasta_saida = "questoes_colunas" 
+    caminho_imagem = "colunas_concatenadas_verticalmente.png" 
+    pasta_saida = "questoes_completas" 
 
-    # Alterado para o padrão GIMP (0 a 100) solicitado:
+    # Padrão GIMP fornecido: R=17.3 G=18.0 B=20.8
     cor_do_padrao = converter_cor_gimp_para_rgb(17.3, 18.0, 20.8) 
-    print(f"Cor convertida do GIMP para RGB: {cor_do_padrao}")
     
-    # Executa a divisão
     dividir_imagem_por_faixas(caminho_imagem, pasta_saida, cor_do_padrao)
-    
-    print("Divisão concluída!")
+    print("Processo concluído com proteção de títulos ativada!")
