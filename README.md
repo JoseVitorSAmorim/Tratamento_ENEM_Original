@@ -18,5 +18,7 @@ venv\Scripts\activate.ps1
 ```
 ## Instalando pdf2image
 ```
-pip install pdf2image    
+pip install pdf2image
+pip install opencv-python pytesseract
+sudo apt install tesseract-ocr tesseract-ocr-por -y    
 ```
