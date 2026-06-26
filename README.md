@@ -16,7 +16,7 @@ source venv/bin/activate
 python -m venv venv
 venv\Scripts\activate.ps1
 ```
-## Instalando pdf2image
+## Instalando dependencias
 ```
 pip install pdf2image
 pip install opencv-python pytesseract
