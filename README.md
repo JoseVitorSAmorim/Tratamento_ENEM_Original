@@ -2,8 +2,10 @@
 Tratamento de imagem da segunda prova ENEM de 2012, caderno 5
 
 ## Requisitos
-Python3
-Pdf2image
+- Python3
+- Pdf2image
+- pytesseract
+- tesseract
 
 ## Ativando ambiente virtual
 ### Linux
